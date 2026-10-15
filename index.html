@@ -28,17 +28,18 @@ button:disabled{opacity:.5}
 <textarea id="memory"></textarea>
 <button id="saveMemory">記憶を保存</button>
 
-<h3>会話</h3>
+<h3>会話履歴</h3>
 <div id="chat"></div>
 <input id="question" placeholder="メッセージを入力">
 <button id="sendBtn">送信</button>
-<button id="clearBtn">会話を消去</button>
+<button id="clearBtn">会話履歴を消去</button>
 
 <script type="module">
 import { CreateMLCEngine } from
 "https://esm.run/@mlc-ai/web-llm";
 
 const MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+
 const memoryBox = document.getElementById("memory");
 const chatBox = document.getElementById("chat");
 const statusBox = document.getElementById("status");
@@ -51,33 +52,61 @@ let messages = [];
 
 memoryBox.value = localStorage.getItem("myai-memory") || "";
 
+try {
+  messages = JSON.parse(
+    localStorage.getItem("myai-history") || "[]"
+  );
+  if (!Array.isArray(messages)) messages = [];
+} catch {
+  messages = [];
+}
+
 function saveMemory() {
   localStorage.setItem("myai-memory", memoryBox.value);
 }
+
+function saveHistory() {
+  localStorage.setItem("myai-history", JSON.stringify(messages));
+}
+
+function showMessage(role, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + (role === "user" ? "user" : "ai");
+  div.textContent =
+    (role === "user" ? "あなた：\n" : "AI：\n") + text;
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// 保存済みの会話を画面に復元
+messages.forEach(message => {
+  if (message.role === "user" || message.role === "assistant") {
+    showMessage(message.role, message.content);
+  }
+});
 
 document.getElementById("saveMemory").onclick = () => {
   saveMemory();
   statusBox.textContent = "記憶を保存したよ！";
 };
 
-function showMessage(role, text) {
-  const div = document.createElement("div");
-  div.className = "msg " + (role === "user" ? "user" : "ai");
-  div.textContent = (role === "user" ? "あなた：\n" : "AI：\n") + text;
-  chatBox.appendChild(div);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
 function changeMemory(oldText, newText) {
   const lines = memoryBox.value.split("\n");
-  const index = lines.findIndex(line => line.includes(oldText));
+  let changed = false;
 
-  if (index === -1) {
+  const updated = lines.map(line => {
+    if (!changed && line.includes(oldText)) {
+      changed = true;
+      return line.replace(oldText, newText);
+    }
+    return line;
+  });
+
+  if (!changed) {
     return "「" + oldText + "」に一致する記憶が見つからなかったよ。";
   }
 
-  lines[index] = lines[index].replace(oldText, newText);
-  memoryBox.value = lines.join("\n");
+  memoryBox.value = updated.join("\n");
   saveMemory();
   return "記憶を「" + newText + "」に変更したよ！";
 }
@@ -114,37 +143,37 @@ function addMemory(text) {
 function handleMemoryCommand(text) {
   let m;
 
-  // 例：ラーメンをカレーに変更
   m = text.match(/^(.+?)を(.+?)に変更[して！。]*$/);
   if (m) {
     return changeMemory(m[1].trim(), m[2].trim());
   }
 
-  // 例：ラーメンの記憶を忘れて
-  m = text.match(/^(.+?)(?:の記憶)?を(?:忘れて|削除して|消して)[！。]*$/);
+  m = text.match(
+    /^(.+?)(?:の記憶)?を(?:忘れて|削除して|消して)[！。]*$/
+  );
   if (m) {
     return deleteMemory(m[1].trim());
   }
 
-  // 例：記憶からラーメンを削除
   m = text.match(/^記憶から(.+?)を(?:削除|消して)[！。]*$/);
   if (m) {
     return deleteMemory(m[1].trim());
   }
 
-  // 例：ラーメンが好き、と会話する
-  m = text.match(/^(?:俺|僕|私|自分)?(?:は)?(.+?)が好き(?:です|だよ|だね|だ)?[！。]*$/);
+  m = text.match(
+    /^(?:俺|僕|私|自分)?(?:は)?(.+?)が好き(?:です|だよ|だね|だ)?[！。]*$/
+  );
   if (m && m[1].trim() && m[1].trim().length <= 40) {
     return addMemory("好きなもの：" + m[1].trim());
   }
 
-  // 例：好きな食べ物はラーメンです
-  m = text.match(/^(?:俺|僕|私|自分)の好きな(食べ物|飲み物|色|動物|ゲーム|趣味)は(.+?)(?:です|だよ|だね|だ)?[！。]*$/);
+  m = text.match(
+    /^(?:俺|僕|私|自分)の好きな(食べ物|飲み物|色|動物|ゲーム|趣味)は(.+?)(?:です|だよ|だね|だ)?[！。]*$/
+  );
   if (m) {
     return addMemory("好きな" + m[1] + "：" + m[2].trim());
   }
 
-  // 明示的に覚えるよう頼む
   m = text.match(/^(?:これを)?(?:覚えて|記憶して|忘れないで)[：:\s]*(.+)$/);
   if (m) {
     return addMemory(m[1].trim());
@@ -185,25 +214,30 @@ async function sendMessage() {
 
   questionBox.value = "";
   showMessage("user", text);
+  messages.push({ role: "user", content: text });
+  saveHistory();
   sendBtn.disabled = true;
 
   const result = handleMemoryCommand(text);
 
   if (result) {
     showMessage("assistant", result);
+    messages.push({ role: "assistant", content: result });
+    saveHistory();
     sendBtn.disabled = false;
     return;
   }
 
   if (/保存されている記憶|保存した記憶|記憶を教えて|覚えていること/.test(text)) {
-    showMessage("assistant", memoryBox.value.trim() || "まだ記憶はないよ。");
+    const answer = memoryBox.value.trim() || "まだ記憶はないよ。";
+    showMessage("assistant", answer);
+    messages.push({ role: "assistant", content: answer });
+    saveHistory();
     sendBtn.disabled = false;
     return;
   }
 
   try {
-    messages.push({role:"user", content:text});
-
     const systemPrompt =
       "あなたはユーザー専用の日本語AIです。" +
       "自然で分かりやすく回答してください。" +
@@ -214,21 +248,26 @@ async function sendMessage() {
 
     const response = await engine.chat.completions.create({
       messages: [
-        {role:"system", content:systemPrompt},
+        { role: "system", content: systemPrompt },
         ...messages.slice(-10)
       ],
-      temperature:0.7,
-      max_tokens:256
+      temperature: 0.7,
+      max_tokens: 256
     });
 
     const answer =
-      response.choices[0]?.message?.content || "うまく回答できなかったよ。";
+      response.choices[0]?.message?.content ||
+      "うまく回答できなかったよ。";
 
-    messages.push({role:"assistant", content:answer});
     showMessage("assistant", answer);
+    messages.push({ role: "assistant", content: answer });
+    saveHistory();
 
   } catch (e) {
-    showMessage("assistant", "エラーが発生したよ：" + e.message);
+    const errorText = "エラーが発生したよ：" + e.message;
+    showMessage("assistant", errorText);
+    messages.push({ role: "assistant", content: errorText });
+    saveHistory();
   }
 
   sendBtn.disabled = false;
@@ -243,7 +282,8 @@ questionBox.addEventListener("keydown", e => {
 document.getElementById("clearBtn").onclick = () => {
   messages = [];
   chatBox.replaceChildren();
-  statusBox.textContent = "会話を消去したよ。記憶は残っているよ。";
+  saveHistory();
+  statusBox.textContent = "会話履歴を消去したよ。記憶は残っているよ。";
 };
 </script>
 </body>
