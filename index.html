@@ -6,9 +6,8 @@
 <title>相棒のAI</title>
 <style>
 body{font-family:sans-serif;max-width:700px;margin:auto;padding:16px;background:#f4f6f8;color:#222}
-h2{margin-bottom:8px}
 textarea,input,button{box-sizing:border-box;width:100%;padding:12px;margin:5px 0;border-radius:8px;font-size:16px}
-textarea{min-height:100px;border:1px solid #bbb}
+textarea{min-height:110px;border:1px solid #bbb}
 input{border:1px solid #bbb}
 button{border:0;background:#2563eb;color:white;font-weight:bold}
 button:disabled{opacity:.5}
@@ -21,12 +20,11 @@ button:disabled{opacity:.5}
 </head>
 <body>
 <h2>相棒のAI</h2>
-<p id="status">準備中</p>
-
+<p id="status">準備完了</p>
 <button id="loadBtn">AIを起動する</button>
 
 <h3>記憶</h3>
-<p class="small">会話から覚えたことも、ここに追加されるよ。</p>
+<p class="small">会話から自動で追加・変更・削除できるよ。</p>
 <textarea id="memory"></textarea>
 <button id="saveMemory">記憶を保存</button>
 
@@ -41,7 +39,6 @@ import { CreateMLCEngine } from
 "https://esm.run/@mlc-ai/web-llm";
 
 const MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-
 const memoryBox = document.getElementById("memory");
 const chatBox = document.getElementById("chat");
 const statusBox = document.getElementById("status");
@@ -71,50 +68,86 @@ function showMessage(role, text) {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function addMemory(text) {
-  const oldMemory = memoryBox.value.trim();
-  const line = "・" + text;
+function changeMemory(oldText, newText) {
+  const lines = memoryBox.value.split("\n");
+  const index = lines.findIndex(line => line.includes(oldText));
 
-  if (oldMemory.includes(text)) return;
+  if (index === -1) {
+    return "「" + oldText + "」に一致する記憶が見つからなかったよ。";
+  }
 
-  memoryBox.value = oldMemory
-    ? oldMemory + "\n" + line
-    : "【ユーザーの記憶】\n" + line;
-
+  lines[index] = lines[index].replace(oldText, newText);
+  memoryBox.value = lines.join("\n");
   saveMemory();
+  return "記憶を「" + newText + "」に変更したよ！";
 }
 
-function learnFromMessage(text) {
-  const t = text.trim();
+function deleteMemory(keyword) {
+  const lines = memoryBox.value.split("\n");
+  const kept = lines.filter(line => !line.includes(keyword));
 
-  // 「覚えて」「記憶して」と頼まれた内容を保存
-  const explicit = t.match(
-    /(?:覚えて|記憶して|忘れないで)[、：:\s]*(.+)/
-  );
-
-  if (explicit && explicit[1].trim()) {
-    addMemory(explicit[1].trim());
-    return "覚えておくね！";
+  if (kept.length === lines.length) {
+    return "「" + keyword + "」に一致する記憶が見つからなかったよ。";
   }
 
-  // 好きなものについての発言を記憶
-  const favorite = t.match(
-    /(?:俺|僕|私|自分)?(?:は|の)?好きな(食べ物|飲み物|色|動物|ゲーム|趣味)(?:は|が)?\s*(.+?)(?:です|だよ|だね|だ|！|。|！)?$/
-  );
+  memoryBox.value = kept.join("\n");
+  saveMemory();
+  return "「" + keyword + "」に一致する記憶を削除したよ！";
+}
 
-  if (favorite && favorite[2].trim()) {
-    addMemory("好きな" + favorite[1] + "は" + favorite[2].trim());
-    return "好きなものとして記憶に追加したよ！";
+function addMemory(text) {
+  const oldMemory = memoryBox.value.trim();
+  const lines = oldMemory.split("\n");
+
+  if (lines.some(line => line.includes(text))) {
+    return "その内容はすでに記憶しているよ！";
   }
 
-  // 「ラーメンが好き」などの発言を記憶
-  const likes = t.match(
-    /(?:俺|僕|私|自分)?(?:は|が)?\s*(.+?)が好き(?:です|だよ|だね|だ)?[！。！]?$/
-  );
+  memoryBox.value = oldMemory
+    ? oldMemory + "\n・" + text
+    : "【ユーザーの記憶】\n・" + text;
 
-  if (likes && likes[1].trim().length <= 40) {
-    addMemory("好きなもの：" + likes[1].trim());
-    return "好きなものとして記憶に追加したよ！";
+  saveMemory();
+  return "記憶に追加したよ！";
+}
+
+function handleMemoryCommand(text) {
+  let m;
+
+  // 例：ラーメンをカレーに変更
+  m = text.match(/^(.+?)を(.+?)に変更[して！。]*$/);
+  if (m) {
+    return changeMemory(m[1].trim(), m[2].trim());
+  }
+
+  // 例：ラーメンの記憶を忘れて
+  m = text.match(/^(.+?)(?:の記憶)?を(?:忘れて|削除して|消して)[！。]*$/);
+  if (m) {
+    return deleteMemory(m[1].trim());
+  }
+
+  // 例：記憶からラーメンを削除
+  m = text.match(/^記憶から(.+?)を(?:削除|消して)[！。]*$/);
+  if (m) {
+    return deleteMemory(m[1].trim());
+  }
+
+  // 例：ラーメンが好き、と会話する
+  m = text.match(/^(?:俺|僕|私|自分)?(?:は)?(.+?)が好き(?:です|だよ|だね|だ)?[！。]*$/);
+  if (m && m[1].trim() && m[1].trim().length <= 40) {
+    return addMemory("好きなもの：" + m[1].trim());
+  }
+
+  // 例：好きな食べ物はラーメンです
+  m = text.match(/^(?:俺|僕|私|自分)の好きな(食べ物|飲み物|色|動物|ゲーム|趣味)は(.+?)(?:です|だよ|だね|だ)?[！。]*$/);
+  if (m) {
+    return addMemory("好きな" + m[1] + "：" + m[2].trim());
+  }
+
+  // 明示的に覚えるよう頼む
+  m = text.match(/^(?:これを)?(?:覚えて|記憶して|忘れないで)[：:\s]*(.+)$/);
+  if (m) {
+    return addMemory(m[1].trim());
   }
 
   return "";
@@ -128,9 +161,8 @@ loadBtn.onclick = async () => {
 
   try {
     engine = await CreateMLCEngine(MODEL, {
-      initProgressCallback: (p) => {
-        statusBox.textContent =
-          p.text || "AIを準備中…";
+      initProgressCallback: p => {
+        statusBox.textContent = p.text || "AIを準備中…";
       }
     });
 
@@ -152,54 +184,47 @@ async function sendMessage() {
   }
 
   questionBox.value = "";
-  sendBtn.disabled = true;
   showMessage("user", text);
+  sendBtn.disabled = true;
 
-  // 記憶について聞かれたら、保存内容を直接返す
-  if (/保存されている記憶|保存した記憶|記憶を教えて|覚えていること/.test(text)) {
-    const answer = memoryBox.value.trim() || "まだ記憶はないよ。";
-    showMessage("assistant", answer);
+  const result = handleMemoryCommand(text);
+
+  if (result) {
+    showMessage("assistant", result);
     sendBtn.disabled = false;
     return;
   }
 
-  // 会話から記憶を自動追加
-  const learned = learnFromMessage(text);
-
-  if (learned) {
-    showMessage("assistant", learned);
+  if (/保存されている記憶|保存した記憶|記憶を教えて|覚えていること/.test(text)) {
+    showMessage("assistant", memoryBox.value.trim() || "まだ記憶はないよ。");
     sendBtn.disabled = false;
     return;
   }
 
   try {
-    const memory = memoryBox.value.trim();
+    messages.push({role:"user", content:text});
 
     const systemPrompt =
       "あなたはユーザー専用の日本語AIです。" +
-      "自然で分かりやすく、短めに回答してください。" +
+      "自然で分かりやすく回答してください。" +
       "必要に応じてユーザーを「相棒」と呼んでください。" +
       "操作案内は一度に一つずつ説明してください。" +
-      "\n\n保存されている記憶：\n" +
-      (memory || "まだ記憶はありません。");
+      "\n保存されている記憶：\n" +
+      (memoryBox.value.trim() || "まだ記憶はありません。");
 
-    messages.push({ role: "user", content: text });
-
-    const recentMessages = messages.slice(-10);
-
-    const result = await engine.chat.completions.create({
+    const response = await engine.chat.completions.create({
       messages: [
-        { role: "system", content: systemPrompt },
-        ...recentMessages
+        {role:"system", content:systemPrompt},
+        ...messages.slice(-10)
       ],
-      temperature: 0.7,
-      max_tokens: 256
+      temperature:0.7,
+      max_tokens:256
     });
 
     const answer =
-      result.choices[0]?.message?.content || "うまく回答できなかったよ。";
+      response.choices[0]?.message?.content || "うまく回答できなかったよ。";
 
-    messages.push({ role: "assistant", content: answer });
+    messages.push({role:"assistant", content:answer});
     showMessage("assistant", answer);
 
   } catch (e) {
@@ -211,7 +236,7 @@ async function sendMessage() {
 
 sendBtn.onclick = sendMessage;
 
-questionBox.addEventListener("keydown", (e) => {
+questionBox.addEventListener("keydown", e => {
   if (e.key === "Enter") sendMessage();
 });
 
