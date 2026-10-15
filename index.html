@@ -1,59 +1,95 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>My Free AI</title>
 <style>
-body{margin:0;background:#111827;color:#f9fafb;font-family:system-ui,sans-serif}
-main{max-width:760px;margin:auto;padding:18px}
-h1{font-size:25px}
-p,.hint{color:#cbd5e1;font-size:14px}
-button,textarea,input{font:inherit;border-radius:10px;padding:11px}
-button{background:#2563eb;color:white;border:0;margin:4px 2px}
-textarea,input{box-sizing:border-box;width:100%;background:#1f2937;color:white;border:1px solid #475569;margin:5px 0}
-#chat{height:38vh;overflow:auto;background:#1f2937;border-radius:12px;padding:12px;white-space:pre-wrap}
-.msg{padding:10px;margin:8px 0;border-radius:10px;background:#374151;white-space:pre-wrap;overflow-wrap:anywhere}
-.user{background:#1d4ed8}
-section{margin-top:18px;padding:14px;background:#1f2937;border-radius:12px}
-.row{display:flex;gap:6px}
-.row button{flex:1}
+body {
+  font-family: sans-serif;
+  max-width: 800px;
+  margin: auto;
+  padding: 16px;
+  background: #f4f6f8;
+  color: #222;
+}
+h1 { font-size: 25px; }
+section {
+  background: white;
+  padding: 14px;
+  margin: 14px 0;
+  border-radius: 12px;
+}
+button {
+  padding: 11px 14px;
+  margin: 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: #2463eb;
+  color: white;
+  font-size: 15px;
+}
+button:disabled { opacity: .5; }
+textarea, input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px;
+  margin: 6px 0;
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  font-size: 16px;
+}
+#chat {
+  min-height: 120px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.msg {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #eee;
+  padding: 12px;
+  border-radius: 9px;
+  margin: 9px 0;
+}
+.msg.user { background: #dceaff; }
+.small { color: #666; font-size: 13px; }
 </style>
 </head>
 <body>
-<main>
+
 <h1>My Free AI</h1>
-<p>無料・ブラウザ内AI・自分専用の長期記憶</p>
-<div id="status">準備中</div>
-<button id="load">AIモデルを読み込む</button>
-<div id="progress" class="hint"></div>
+<p>自分専用・無料のローカルAI</p>
 
 <section>
-<h3>会話</h3>
-<div id="chat"></div>
-<textarea id="question" rows="3" placeholder="AIに聞きたいことを書いてね"></textarea>
-<div class="row">
-<button id="send">送信</button>
-<button id="new">新しいチャット</button>
-</div>
+  <h2>AIモデル</h2>
+  <button id="load">AIモデルを読み込む</button>
+  <p id="status">まだ読み込まれていません。</p>
+  <p id="progress" class="small"></p>
 </section>
 
 <section>
-<h3>長期記憶</h3>
-<p>ここに保存した情報は、次のチャットでもAIに伝えられるよ。</p>
-<textarea id="memory" rows="5" placeholder="例：日本語で話す。回答は一つずつ手順を案内してほしい。"></textarea>
-<button id="saveMemory">記憶を保存</button>
-<div id="memoryStatus" class="hint"></div>
+  <h2>長期記憶</h2>
+  <p class="small">
+    AIに覚えてほしいことを保存します。
+    このブラウザ内に保存されます。
+  </p>
+  <textarea id="memory" rows="7"
+    placeholder="例：回答は一度に一つずつ案内してほしい。"></textarea>
+  <button id="saveMemory">記憶を保存</button>
+  <p id="memoryStatus" class="small"></p>
 </section>
 
 <section>
-<h3>保存した会話</h3>
-<button id="showHistory">保存した会話を見る</button>
-<div id="history"></div>
+  <h2>会話</h2>
+  <div id="chat"></div>
+  <textarea id="question" rows="3"
+    placeholder="AIに質問する"></textarea>
+  <button id="send">送信</button>
+  <button id="new">新しいチャット</button>
+  <button id="showHistory">過去の会話</button>
+  <div id="history"></div>
 </section>
-<p class="hint">会話と記憶はこのブラウザ内に保存されます。ブラウザのデータ消去や別端末への移行で失われる場合があります。重要な情報はここに保存しないでください。</p>
-</main>
 
 <script type="module">
 import { CreateMLCEngine } from
@@ -66,16 +102,18 @@ let engine = null;
 let messages = [];
 let busy = false;
 
-const read = (key, fallback) => {
+function read(key, fallback) {
   try {
-    const v = localStorage.getItem(key);
-    return v === null ? fallback : JSON.parse(v);
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : JSON.parse(value);
   } catch {
     return fallback;
   }
-};
-const write = (key, value) =>
+}
+
+function write(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
 
 $("memory").value = localStorage.getItem("myai-memory") || "";
 messages = read("myai-current-chat", []);
@@ -83,13 +121,21 @@ render();
 
 function render() {
   $("chat").replaceChildren();
-  for (const m of messages) {
-    if (m.role === "system") continue;
+
+  for (const message of messages) {
+    if (message.role === "system") continue;
+
     const div = document.createElement("div");
-    div.className = "msg " + (m.role === "user" ? "user" : "");
-    div.textContent = (m.role === "user" ? "あなた\n" : "AI\n") + m.content;
+    div.className =
+      "msg " + (message.role === "user" ? "user" : "");
+
+    div.textContent =
+      (message.role === "user" ? "あなた\n" : "AI\n")
+      + message.content;
+
     $("chat").append(div);
   }
+
   $("chat").scrollTop = $("chat").scrollHeight;
 }
 
@@ -99,60 +145,101 @@ function saveChat() {
 
 $("saveMemory").onclick = () => {
   localStorage.setItem("myai-memory", $("memory").value);
-  $("memoryStatus").textContent = "記憶をこのブラウザに保存したよ。";
+  $("memoryStatus").textContent = "記憶を保存しました。";
 };
 
 $("load").onclick = async () => {
   if (engine) return;
+
   $("load").disabled = true;
   $("status").textContent = "AIモデルを準備中…";
+
   try {
     engine = await CreateMLCEngine(MODEL, {
       initProgressCallback: report => {
         $("progress").textContent = report.text || "";
       }
     });
-    $("status").textContent = "AIの準備ができたよ！";
+
+    $("status").textContent = "AIの準備ができました！";
     $("load").textContent = "読み込み済み";
-  } catch (e) {
-    $("status").textContent = "読み込み失敗：" + e.message;
+  } catch (error) {
+    $("status").textContent = "読み込み失敗：" + error.message;
     $("load").disabled = false;
   }
 };
 
 $("send").onclick = async () => {
   const text = $("question").value.trim();
+
   if (!text || busy) return;
-  if (!engine) {
-    $("status").textContent = "先に「AIモデルを読み込む」を押してね。";
+
+  const memory = localStorage.getItem("myai-memory") || "";
+
+  if (!engine && memory === "") {
+    $("status").textContent =
+      "先に「AIモデルを読み込む」を押してください。";
     return;
   }
 
   busy = true;
   $("send").disabled = true;
   $("question").value = "";
-  messages.push({role:"user", content:text});
+
+  messages.push({ role: "user", content: text });
   render();
   saveChat();
 
-  const memory = localStorage.getItem("myai-memory") || "";
-  const system = "あなたはユーザー専用のAIアシスタントです。日本語で親しみやすく、具体的に回答してください。分からないことは正直に伝えてください。ユーザーが一つずつ進めたいときは一度に一つの手順だけ案内してください。以下はユーザーが保存した長期記憶です。会話に関係する場合に活用してください。\n" + memory;
-
   try {
-    const result = await engine.chat.completions.create({
-      messages: [
-        {role:"system", content:system},
-        ...messages.slice(-16)
-      ],
-      temperature:0.7,
-      max_tokens:700
-    });
+    let answer = "";
+
+    // 保存された記憶を尋ねられたら、内容を直接返す
+    const asksMemory =
+      /記憶|覚えていること|覚えてること|保存内容|保存されている情報/
+      .test(text);
+
+    if (asksMemory) {
+      answer = memory.trim()
+        ? "保存されている記憶は以下のとおりです。\n\n" + memory
+        : "まだ記憶は保存されていません。";
+    } else {
+      if (!engine) {
+        throw new Error("先にAIモデルを読み込んでください。");
+      }
+
+      const system =
+        "あなたはユーザー専用のAIアシスタントです。" +
+        "日本語で親しみやすく、具体的に回答してください。" +
+        "分からないことは正直に伝えてください。" +
+        "操作案内は一度に一つの手順だけ説明してください。\n\n" +
+        "以下はユーザーが保存した長期記憶です。" +
+        "これはユーザーについての情報です。" +
+        "質問に関係する場合は必ず参考にしてください。" +
+        "記憶にない情報を作らないでください。\n\n" +
+        "【保存された長期記憶】\n" +
+        (memory.trim() || "現在、記憶はありません。");
+
+      const result = await engine.chat.completions.create({
+        messages: [
+          { role: "system", content: system },
+          ...messages.slice(-12)
+        ],
+        temperature: 0.5,
+        max_tokens: 700
+      });
+
+      answer =
+        result.choices[0].message.content ||
+        "回答を生成できませんでした。";
+    }
+
+    messages.push({ role: "assistant", content: answer });
+
+  } catch (error) {
     messages.push({
-      role:"assistant",
-      content:result.choices[0].message.content || "回答を生成できませんでした。"
+      role: "assistant",
+      content: "エラー：" + error.message
     });
-  } catch (e) {
-    messages.push({role:"assistant", content:"エラーが発生しました: " + e.message});
   }
 
   saveChat();
@@ -164,12 +251,15 @@ $("send").onclick = async () => {
 $("new").onclick = () => {
   if (messages.length) {
     const history = read("myai-history", []);
+
     history.unshift({
-      date:new Date().toLocaleString("ja-JP"),
-      messages
+      date: new Date().toLocaleString("ja-JP"),
+      messages: messages
     });
-    write("myai-history", history.slice(0,30));
+
+    write("myai-history", history.slice(0, 30));
   }
+
   messages = [];
   saveChat();
   render();
@@ -179,14 +269,17 @@ $("new").onclick = () => {
 $("showHistory").onclick = () => {
   const history = read("myai-history", []);
   $("history").replaceChildren();
+
   history.forEach((item, index) => {
     const button = document.createElement("button");
     button.textContent = (index + 1) + ". " + item.date;
+
     button.onclick = () => {
       messages = item.messages || [];
       saveChat();
       render();
     };
+
     $("history").append(button);
   });
 };
