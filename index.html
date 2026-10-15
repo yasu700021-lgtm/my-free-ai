@@ -1,0 +1,195 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Free AI</title>
+<style>
+body{margin:0;background:#111827;color:#f9fafb;font-family:system-ui,sans-serif}
+main{max-width:760px;margin:auto;padding:18px}
+h1{font-size:25px}
+p,.hint{color:#cbd5e1;font-size:14px}
+button,textarea,input{font:inherit;border-radius:10px;padding:11px}
+button{background:#2563eb;color:white;border:0;margin:4px 2px}
+textarea,input{box-sizing:border-box;width:100%;background:#1f2937;color:white;border:1px solid #475569;margin:5px 0}
+#chat{height:38vh;overflow:auto;background:#1f2937;border-radius:12px;padding:12px;white-space:pre-wrap}
+.msg{padding:10px;margin:8px 0;border-radius:10px;background:#374151;white-space:pre-wrap;overflow-wrap:anywhere}
+.user{background:#1d4ed8}
+section{margin-top:18px;padding:14px;background:#1f2937;border-radius:12px}
+.row{display:flex;gap:6px}
+.row button{flex:1}
+</style>
+</head>
+<body>
+<main>
+<h1>My Free AI</h1>
+<p>無料・ブラウザ内AI・自分専用の長期記憶</p>
+<div id="status">準備中</div>
+<button id="load">AIモデルを読み込む</button>
+<div id="progress" class="hint"></div>
+
+<section>
+<h3>会話</h3>
+<div id="chat"></div>
+<textarea id="question" rows="3" placeholder="AIに聞きたいことを書いてね"></textarea>
+<div class="row">
+<button id="send">送信</button>
+<button id="new">新しいチャット</button>
+</div>
+</section>
+
+<section>
+<h3>長期記憶</h3>
+<p>ここに保存した情報は、次のチャットでもAIに伝えられるよ。</p>
+<textarea id="memory" rows="5" placeholder="例：日本語で話す。回答は一つずつ手順を案内してほしい。"></textarea>
+<button id="saveMemory">記憶を保存</button>
+<div id="memoryStatus" class="hint"></div>
+</section>
+
+<section>
+<h3>保存した会話</h3>
+<button id="showHistory">保存した会話を見る</button>
+<div id="history"></div>
+</section>
+<p class="hint">会話と記憶はこのブラウザ内に保存されます。ブラウザのデータ消去や別端末への移行で失われる場合があります。重要な情報はここに保存しないでください。</p>
+</main>
+
+<script type="module">
+import { CreateMLCEngine } from
+"https://esm.run/@mlc-ai/web-llm";
+
+const MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+const $ = id => document.getElementById(id);
+
+let engine = null;
+let messages = [];
+let busy = false;
+
+const read = (key, fallback) => {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+};
+const write = (key, value) =>
+  localStorage.setItem(key, JSON.stringify(value));
+
+$("memory").value = localStorage.getItem("myai-memory") || "";
+messages = read("myai-current-chat", []);
+render();
+
+function render() {
+  $("chat").replaceChildren();
+  for (const m of messages) {
+    if (m.role === "system") continue;
+    const div = document.createElement("div");
+    div.className = "msg " + (m.role === "user" ? "user" : "");
+    div.textContent = (m.role === "user" ? "あなた\n" : "AI\n") + m.content;
+    $("chat").append(div);
+  }
+  $("chat").scrollTop = $("chat").scrollHeight;
+}
+
+function saveChat() {
+  write("myai-current-chat", messages);
+}
+
+$("saveMemory").onclick = () => {
+  localStorage.setItem("myai-memory", $("memory").value);
+  $("memoryStatus").textContent = "記憶をこのブラウザに保存したよ。";
+};
+
+$("load").onclick = async () => {
+  if (engine) return;
+  $("load").disabled = true;
+  $("status").textContent = "AIモデルを準備中…";
+  try {
+    engine = await CreateMLCEngine(MODEL, {
+      initProgressCallback: report => {
+        $("progress").textContent = report.text || "";
+      }
+    });
+    $("status").textContent = "AIの準備ができたよ！";
+    $("load").textContent = "読み込み済み";
+  } catch (e) {
+    $("status").textContent = "読み込み失敗：" + e.message;
+    $("load").disabled = false;
+  }
+};
+
+$("send").onclick = async () => {
+  const text = $("question").value.trim();
+  if (!text || busy) return;
+  if (!engine) {
+    $("status").textContent = "先に「AIモデルを読み込む」を押してね。";
+    return;
+  }
+
+  busy = true;
+  $("send").disabled = true;
+  $("question").value = "";
+  messages.push({role:"user", content:text});
+  render();
+  saveChat();
+
+  const memory = localStorage.getItem("myai-memory") || "";
+  const system = "あなたはユーザー専用のAIアシスタントです。日本語で親しみやすく、具体的に回答してください。分からないことは正直に伝えてください。ユーザーが一つずつ進めたいときは一度に一つの手順だけ案内してください。以下はユーザーが保存した長期記憶です。会話に関係する場合に活用してください。\n" + memory;
+
+  try {
+    const result = await engine.chat.completions.create({
+      messages: [
+        {role:"system", content:system},
+        ...messages.slice(-16)
+      ],
+      temperature:0.7,
+      max_tokens:700
+    });
+    messages.push({
+      role:"assistant",
+      content:result.choices[0].message.content || "回答を生成できませんでした。"
+    });
+  } catch (e) {
+    messages.push({role:"assistant", content:"エラーが発生しました: " + e.message});
+  }
+
+  saveChat();
+  render();
+  busy = false;
+  $("send").disabled = false;
+};
+
+$("new").onclick = () => {
+  if (messages.length) {
+    const history = read("myai-history", []);
+    history.unshift({
+      date:new Date().toLocaleString("ja-JP"),
+      messages
+    });
+    write("myai-history", history.slice(0,30));
+  }
+  messages = [];
+  saveChat();
+  render();
+  $("history").replaceChildren();
+};
+
+$("showHistory").onclick = () => {
+  const history = read("myai-history", []);
+  $("history").replaceChildren();
+  history.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.textContent = (index + 1) + ". " + item.date;
+    button.onclick = () => {
+      messages = item.messages || [];
+      saveChat();
+      render();
+    };
+    $("history").append(button);
+  });
+};
+</script>
+</body>
+</html>
