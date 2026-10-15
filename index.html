@@ -1,211 +1,311 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>相棒のAI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>相棒AI</title>
 <style>
-body{font-family:sans-serif;max-width:700px;margin:auto;padding:16px;background:#f4f6f8;color:#222}
-textarea,input,button{box-sizing:border-box;width:100%;padding:12px;margin:5px 0;border-radius:8px;font-size:16px}
-textarea{min-height:110px;border:1px solid #bbb}
-input{border:1px solid #bbb}
-button{border:0;background:#2563eb;color:white;font-weight:bold}
-button:disabled{opacity:.5}
-#chat{height:300px;overflow:auto;background:white;padding:12px;border-radius:10px;border:1px solid #ddd;white-space:pre-wrap}
-.msg{padding:9px;margin:8px 0;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
-.user{background:#dbeafe}
-.ai{background:#eee}
-.small{font-size:13px;color:#666}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px; background: #f3f5f8;
+  color: #222; font-family: sans-serif;
+}
+main { max-width: 700px; margin: auto; }
+h1 { text-align: center; }
+.panel {
+  background: white; padding: 14px; margin-bottom: 14px;
+  border-radius: 12px;
+}
+button, textarea {
+  font: inherit; border-radius: 8px; padding: 11px;
+}
+button { cursor: pointer; border: 0; background: #2563eb; color: white; }
+button:disabled { opacity: .5; }
+textarea { width: 100%; border: 1px solid #ccd1da; resize: vertical; }
+#chat {
+  height: 320px; overflow-y: auto; background: #fff;
+  padding: 12px; border-radius: 10px; border: 1px solid #ddd;
+}
+.message {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  padding: 10px 12px; border-radius: 10px;
+  margin: 8px 0; line-height: 1.5;
+}
+.user { background: #dbeafe; margin-left: 12%; }
+.assistant { background: #eee; margin-right: 8%; }
+.row { display: flex; gap: 8px; margin-top: 8px; }
+.row textarea { flex: 1; min-width: 0; }
+#status { font-size: 14px; color: #555; white-space: pre-wrap; }
+.small { font-size: 13px; color: #666; }
 </style>
 </head>
 <body>
-<h2>相棒のAI</h2>
-<p id="status">準備完了</p>
-<button id="loadBtn">AIを起動する</button>
+<main>
+<h1>相棒AI</h1>
 
-<h3>記憶</h3>
-<p class="small">会話から自動で追加・変更・削除できるよ。</p>
-<textarea id="memory"></textarea>
-<button id="saveMemory">記憶を保存</button>
+<section class="panel">
+  <button id="startBtn">AIを起動する</button>
+  <p id="status">AIはまだ起動していないよ。</p>
+</section>
 
-<h3>会話履歴</h3>
-<div id="chat"></div>
-<input id="question" placeholder="メッセージを入力">
-<button id="sendBtn">送信</button>
-<button id="clearBtn">会話履歴を消去</button>
+<section class="panel">
+  <h3>相棒の記憶</h3>
+  <textarea id="memoryBox" rows="5"
+    placeholder="覚えておいてほしいことを書く"></textarea>
+  <div class="row">
+    <button id="saveMemoryBtn">記憶を保存</button>
+  </div>
+  <p class="small">記憶はこのブラウザ内に保存されるよ。</p>
+</section>
+
+<section class="panel">
+  <h3>会話</h3>
+  <div id="chat"></div>
+  <div class="row">
+    <textarea id="questionBox" rows="2"
+      placeholder="相棒AIに話しかけよう"></textarea>
+    <button id="sendBtn" disabled>送信</button>
+  </div>
+  <div class="row">
+    <button id="clearBtn" style="background:#b91c1c">
+      会話履歴を消す
+    </button>
+  </div>
+  <p class="small">会話履歴を消しても、記憶は消えないよ。</p>
+</section>
+</main>
 
 <script type="module">
 import { CreateMLCEngine } from
-"https://esm.run/@mlc-ai/web-llm";
+  "https://esm.run/@mlc-ai/web-llm";
 
 const MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+const MEMORY_KEY = "myai-memory";
+const HISTORY_KEY = "myai-history";
 
-const memoryBox = document.getElementById("memory");
+const startBtn = document.getElementById("startBtn");
+const sendBtn = document.getElementById("sendBtn");
+const questionBox = document.getElementById("questionBox");
+const memoryBox = document.getElementById("memoryBox");
 const chatBox = document.getElementById("chat");
 const statusBox = document.getElementById("status");
-const loadBtn = document.getElementById("loadBtn");
-const sendBtn = document.getElementById("sendBtn");
-const questionBox = document.getElementById("question");
 
 let engine = null;
+let busy = false;
 let messages = [];
 
-memoryBox.value = localStorage.getItem("myai-memory") || "";
-
-try {
-  messages = JSON.parse(
-    localStorage.getItem("myai-history") || "[]"
-  );
-  if (!Array.isArray(messages)) messages = [];
-} catch {
-  messages = [];
+function readStorage(key, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value;
+  } catch {
+    return fallback;
+  }
 }
 
-function saveMemory() {
-  localStorage.setItem("myai-memory", memoryBox.value);
+function loadHistory() {
+  try {
+    const data = JSON.parse(readStorage(HISTORY_KEY, "[]"));
+    return Array.isArray(data)
+      ? data.filter(m =>
+          m && ["user", "assistant"].includes(m.role) &&
+          typeof m.content === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function saveHistory() {
-  localStorage.setItem("myai-history", JSON.stringify(messages));
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(messages));
+    return true;
+  } catch (e) {
+    statusBox.textContent =
+      "履歴を保存できなかったよ。ブラウザの保存容量を確認してね。";
+    return false;
+  }
 }
 
-function showMessage(role, text) {
+function showMessage(role, content) {
   const div = document.createElement("div");
-  div.className = "msg " + (role === "user" ? "user" : "ai");
+  div.className = "message " + role;
   div.textContent =
-    (role === "user" ? "あなた：\n" : "AI：\n") + text;
+    (role === "user" ? "あなた：\n" : "相棒AI：\n") + content;
   chatBox.appendChild(div);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 保存済みの会話を画面に復元
-messages.forEach(message => {
-  if (message.role === "user" || message.role === "assistant") {
-    showMessage(message.role, message.content);
+function redrawHistory() {
+  chatBox.replaceChildren();
+  messages.forEach(m => showMessage(m.role, m.content));
+}
+
+function getMemory() {
+  return readStorage(MEMORY_KEY, "");
+}
+
+function setMemory(value) {
+  try {
+    localStorage.setItem(MEMORY_KEY, value);
+    memoryBox.value = value;
+    return true;
+  } catch {
+    statusBox.textContent = "記憶を保存できなかったよ。";
+    return false;
   }
-});
+}
 
-document.getElementById("saveMemory").onclick = () => {
-  saveMemory();
-  statusBox.textContent = "記憶を保存したよ！";
-};
+function addMemory(line) {
+  const current = getMemory();
+  const lines = current.split("\n").map(s => s.trim()).filter(Boolean);
+  if (lines.some(s => s === line)) return false;
+  lines.push(line);
+  return setMemory(lines.join("\n"));
+}
 
-function changeMemory(oldText, newText) {
-  const lines = memoryBox.value.split("\n");
-  let changed = false;
+function changeMemory(text) {
+  const current = getMemory();
+  const patterns = [
+    /^(.+?)を(.+?)に変更$/,
+    /^(.+?)を(.+?)に変えて$/,
+    /^(.+?)じゃなくて(.+?)$/,
+    /^(.+?)ではなく(.+?)$/
+  ];
 
-  const updated = lines.map(line => {
-    if (!changed && line.includes(oldText)) {
-      changed = true;
-      return line.replace(oldText, newText);
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    const oldText = match[1].trim();
+    const newText = match[2].trim();
+    if (!oldText || !newText) continue;
+
+    const lines = current.split("\n").map(s => s.trim()).filter(Boolean);
+    let changed = false;
+    const updated = lines.map(line => {
+      if (line.includes(oldText)) {
+        changed = true;
+        return line.replaceAll(oldText, newText);
+      }
+      return line;
+    });
+
+    if (changed) {
+      setMemory(updated.join("\n"));
+      return "記憶を「" + oldText + "」から「" +
+        newText + "」に変更したよ！";
     }
-    return line;
-  });
-
-  if (!changed) {
-    return "「" + oldText + "」に一致する記憶が見つからなかったよ。";
   }
-
-  memoryBox.value = updated.join("\n");
-  saveMemory();
-  return "記憶を「" + newText + "」に変更したよ！";
+  return null;
 }
 
-function deleteMemory(keyword) {
-  const lines = memoryBox.value.split("\n");
-  const kept = lines.filter(line => !line.includes(keyword));
+function forgetMemory(text) {
+  const match = text.match(
+    /^(.+?)の記憶を忘れて(?:ね)?$|^(.+?)を忘れて(?:ね)?$/
+  );
+  if (!match) return null;
 
-  if (kept.length === lines.length) {
-    return "「" + keyword + "」に一致する記憶が見つからなかったよ。";
+  const target = (match[1] || match[2] || "").trim();
+  if (!target) return null;
+
+  const lines = getMemory().split("\n").map(s => s.trim()).filter(Boolean);
+  const updated = lines.filter(line =>
+    !line.includes(target) && !line.includes(target + "が好き")
+  );
+
+  if (updated.length === lines.length) {
+    return "「" + target + "」に関する記憶は見つからなかったよ。";
   }
 
-  memoryBox.value = kept.join("\n");
-  saveMemory();
-  return "「" + keyword + "」に一致する記憶を削除したよ！";
+  setMemory(updated.join("\n"));
+  return "「" + target + "」の記憶を忘れたよ。";
 }
 
-function addMemory(text) {
-  const oldMemory = memoryBox.value.trim();
-  const lines = oldMemory.split("\n");
+function learnMemory(text) {
+  const patterns = [
+    /^(.+?)が好き$/,
+    /^(.+?)が大好き$/,
+    /^覚えて(?:おいて|て)[:： ]?(.+)$/,
+    /^記憶して[:： ]?(.+)$/
+  ];
 
-  if (lines.some(line => line.includes(text))) {
-    return "その内容はすでに記憶しているよ！";
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    const fact = match[1].trim();
+    if (!fact) continue;
+
+    const line = pattern.source.includes("覚えて") ||
+      pattern.source.includes("記憶して")
+      ? fact : fact + "が好き";
+
+    if (addMemory(line)) {
+      return "「" + line + "」を記憶に追加したよ！";
+    }
+    return "そのことはもう記憶しているよ！";
   }
-
-  memoryBox.value = oldMemory
-    ? oldMemory + "\n・" + text
-    : "【ユーザーの記憶】\n・" + text;
-
-  saveMemory();
-  return "記憶に追加したよ！";
+  return null;
 }
 
 function handleMemoryCommand(text) {
-  let m;
+  const forgotten = forgetMemory(text);
+  if (forgotten) return forgotten;
 
-  m = text.match(/^(.+?)を(.+?)に変更[して！。]*$/);
-  if (m) {
-    return changeMemory(m[1].trim(), m[2].trim());
-  }
+  const changed = changeMemory(text);
+  if (changed) return changed;
 
-  m = text.match(
-    /^(.+?)(?:の記憶)?を(?:忘れて|削除して|消して)[！。]*$/
-  );
-  if (m) {
-    return deleteMemory(m[1].trim());
-  }
+  const learned = learnMemory(text);
+  if (learned) return learned;
 
-  m = text.match(/^記憶から(.+?)を(?:削除|消して)[！。]*$/);
-  if (m) {
-    return deleteMemory(m[1].trim());
-  }
-
-  m = text.match(
-    /^(?:俺|僕|私|自分)?(?:は)?(.+?)が好き(?:です|だよ|だね|だ)?[！。]*$/
-  );
-  if (m && m[1].trim() && m[1].trim().length <= 40) {
-    return addMemory("好きなもの：" + m[1].trim());
-  }
-
-  m = text.match(
-    /^(?:俺|僕|私|自分)の好きな(食べ物|飲み物|色|動物|ゲーム|趣味)は(.+?)(?:です|だよ|だね|だ)?[！。]*$/
-  );
-  if (m) {
-    return addMemory("好きな" + m[1] + "：" + m[2].trim());
-  }
-
-  m = text.match(/^(?:これを)?(?:覚えて|記憶して|忘れないで)[：:\s]*(.+)$/);
-  if (m) {
-    return addMemory(m[1].trim());
-  }
-
-  return "";
+  return null;
 }
 
-loadBtn.onclick = async () => {
-  if (engine) return;
+function systemPrompt() {
+  return "あなたは日本語で話す親しみやすい個人AI「相棒AI」です。" +
+    "自然で分かりやすく、誠実に返事してください。" +
+    "ユーザーの記憶は以下です。回答に関係する場合だけ活用してください。\n" +
+    (getMemory() || "まだ記憶はありません。");
+}
 
-  loadBtn.disabled = true;
-  statusBox.textContent = "AIを起動中…初回は時間がかかるよ。";
+memoryBox.value = getMemory();
+messages = loadHistory();
+redrawHistory();
+
+document.getElementById("saveMemoryBtn").onclick = () => {
+  if (setMemory(memoryBox.value)) {
+    statusBox.textContent = "記憶を保存したよ！";
+  }
+};
+
+startBtn.onclick = async () => {
+  if (engine || busy) return;
+  startBtn.disabled = true;
+  statusBox.textContent = "AIを準備中だよ。初回は時間がかかるよ。";
 
   try {
     engine = await CreateMLCEngine(MODEL, {
-      initProgressCallback: p => {
-        statusBox.textContent = p.text || "AIを準備中…";
+      initProgressCallback: progress => {
+        statusBox.textContent =
+          progress.text || "AIを準備中だよ…";
       }
     });
-
-    statusBox.textContent = "AI起動完了！話しかけてね。";
-    loadBtn.textContent = "AI起動済み";
+    statusBox.textContent = "起動できたよ！話しかけてね。";
+    sendBtn.disabled = false;
+    startBtn.textContent = "AI起動済み";
   } catch (e) {
-    statusBox.textContent = "起動失敗：" + e.message;
-    loadBtn.disabled = false;
+    statusBox.textContent =
+      "起動できなかったよ： " + e.message +
+      "\n通信環境や対応状況を確認して、もう一度試してね。";
+    startBtn.disabled = false;
   }
 };
 
 async function sendMessage() {
   const text = questionBox.value.trim();
-  if (!text) return;
+  if (!text || busy) return;
 
   if (!engine) {
     statusBox.textContent = "先に「AIを起動する」を押してね。";
@@ -213,73 +313,59 @@ async function sendMessage() {
   }
 
   questionBox.value = "";
+  busy = true;
+  sendBtn.disabled = true;
   showMessage("user", text);
   messages.push({ role: "user", content: text });
   saveHistory();
-  sendBtn.disabled = true;
-
-  const result = handleMemoryCommand(text);
-
-  if (result) {
-    showMessage("assistant", result);
-    messages.push({ role: "assistant", content: result });
-    saveHistory();
-    sendBtn.disabled = false;
-    return;
-  }
-
-  if (/保存されている記憶|保存した記憶|記憶を教えて|覚えていること/.test(text)) {
-    const answer = memoryBox.value.trim() || "まだ記憶はないよ。";
-    showMessage("assistant", answer);
-    messages.push({ role: "assistant", content: answer });
-    saveHistory();
-    sendBtn.disabled = false;
-    return;
-  }
 
   try {
-    const systemPrompt =
-      "あなたはユーザー専用の日本語AIです。" +
-      "自然で分かりやすく回答してください。" +
-      "必要に応じてユーザーを「相棒」と呼んでください。" +
-      "操作案内は一度に一つずつ説明してください。" +
-      "\n保存されている記憶：\n" +
-      (memoryBox.value.trim() || "まだ記憶はありません。");
+    const memoryAnswer = handleMemoryCommand(text);
+    let answer;
 
-    const response = await engine.chat.completions.create({
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages.slice(-10)
-      ],
-      temperature: 0.7,
-      max_tokens: 256
-    });
-
-    const answer =
-      response.choices[0]?.message?.content ||
-      "うまく回答できなかったよ。";
+    if (memoryAnswer) {
+      answer = memoryAnswer;
+    } else {
+      const recentMessages = messages.slice(-20);
+      const result = await engine.chat.completions.create({
+        messages: [
+          { role: "system", content: systemPrompt() },
+          ...recentMessages
+        ],
+        temperature: 0.7,
+        max_tokens: 512
+      });
+      answer = result.choices?.[0]?.message?.content?.trim()
+        || "うまく返事を作れなかったよ。もう一度試してね。";
+    }
 
     showMessage("assistant", answer);
     messages.push({ role: "assistant", content: answer });
     saveHistory();
-
+    statusBox.textContent = "準備OK";
   } catch (e) {
     const errorText = "エラーが発生したよ：" + e.message;
     showMessage("assistant", errorText);
     messages.push({ role: "assistant", content: errorText });
     saveHistory();
+    statusBox.textContent = "エラーが発生したよ。";
+  } finally {
+    busy = false;
+    sendBtn.disabled = !engine;
   }
-
-  sendBtn.disabled = false;
 }
 
 sendBtn.onclick = sendMessage;
 
 questionBox.addEventListener("keydown", e => {
-  if (e.key === "Enter") sendMessage();
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
 });
 
 document.getElementById("clearBtn").onclick = () => {
+  if (!confirm("会話履歴を消す？記憶は残るよ。")) return;
   messages = [];
   chatBox.replaceChildren();
   saveHistory();
