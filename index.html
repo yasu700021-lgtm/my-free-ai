@@ -3,285 +3,222 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>My Free AI</title>
+<title>相棒のAI</title>
 <style>
-body {
-  font-family: sans-serif;
-  max-width: 800px;
-  margin: auto;
-  padding: 16px;
-  background: #f4f6f8;
-  color: #222;
-}
-h1 { font-size: 25px; }
-section {
-  background: white;
-  padding: 14px;
-  margin: 14px 0;
-  border-radius: 12px;
-}
-button {
-  padding: 11px 14px;
-  margin: 4px 2px;
-  border: 0;
-  border-radius: 8px;
-  background: #2463eb;
-  color: white;
-  font-size: 15px;
-}
-button:disabled { opacity: .5; }
-textarea, input {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 12px;
-  margin: 6px 0;
-  border: 1px solid #bbb;
-  border-radius: 8px;
-  font-size: 16px;
-}
-#chat {
-  min-height: 120px;
-  max-height: 400px;
-  overflow-y: auto;
-}
-.msg {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  background: #eee;
-  padding: 12px;
-  border-radius: 9px;
-  margin: 9px 0;
-}
-.msg.user { background: #dceaff; }
-.small { color: #666; font-size: 13px; }
+body{font-family:sans-serif;max-width:700px;margin:auto;padding:16px;background:#f4f6f8;color:#222}
+h2{margin-bottom:8px}
+textarea,input,button{box-sizing:border-box;width:100%;padding:12px;margin:5px 0;border-radius:8px;font-size:16px}
+textarea{min-height:100px;border:1px solid #bbb}
+input{border:1px solid #bbb}
+button{border:0;background:#2563eb;color:white;font-weight:bold}
+button:disabled{opacity:.5}
+#chat{height:300px;overflow:auto;background:white;padding:12px;border-radius:10px;border:1px solid #ddd;white-space:pre-wrap}
+.msg{padding:9px;margin:8px 0;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.user{background:#dbeafe}
+.ai{background:#eee}
+.small{font-size:13px;color:#666}
 </style>
 </head>
 <body>
+<h2>相棒のAI</h2>
+<p id="status">準備中</p>
 
-<h1>My Free AI</h1>
-<p>自分専用・無料のローカルAI</p>
+<button id="loadBtn">AIを起動する</button>
 
-<section>
-  <h2>AIモデル</h2>
-  <button id="load">AIモデルを読み込む</button>
-  <p id="status">まだ読み込まれていません。</p>
-  <p id="progress" class="small"></p>
-</section>
+<h3>記憶</h3>
+<p class="small">会話から覚えたことも、ここに追加されるよ。</p>
+<textarea id="memory"></textarea>
+<button id="saveMemory">記憶を保存</button>
 
-<section>
-  <h2>長期記憶</h2>
-  <p class="small">
-    AIに覚えてほしいことを保存します。
-    このブラウザ内に保存されます。
-  </p>
-  <textarea id="memory" rows="7"
-    placeholder="例：回答は一度に一つずつ案内してほしい。"></textarea>
-  <button id="saveMemory">記憶を保存</button>
-  <p id="memoryStatus" class="small"></p>
-</section>
-
-<section>
-  <h2>会話</h2>
-  <div id="chat"></div>
-  <textarea id="question" rows="3"
-    placeholder="AIに質問する"></textarea>
-  <button id="send">送信</button>
-  <button id="new">新しいチャット</button>
-  <button id="showHistory">過去の会話</button>
-  <div id="history"></div>
-</section>
+<h3>会話</h3>
+<div id="chat"></div>
+<input id="question" placeholder="メッセージを入力">
+<button id="sendBtn">送信</button>
+<button id="clearBtn">会話を消去</button>
 
 <script type="module">
 import { CreateMLCEngine } from
 "https://esm.run/@mlc-ai/web-llm";
 
 const MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
-const $ = id => document.getElementById(id);
+
+const memoryBox = document.getElementById("memory");
+const chatBox = document.getElementById("chat");
+const statusBox = document.getElementById("status");
+const loadBtn = document.getElementById("loadBtn");
+const sendBtn = document.getElementById("sendBtn");
+const questionBox = document.getElementById("question");
 
 let engine = null;
 let messages = [];
-let busy = false;
 
-function read(key, fallback) {
-  try {
-    const value = localStorage.getItem(key);
-    return value === null ? fallback : JSON.parse(value);
-  } catch {
-    return fallback;
-  }
+memoryBox.value = localStorage.getItem("myai-memory") || "";
+
+function saveMemory() {
+  localStorage.setItem("myai-memory", memoryBox.value);
 }
 
-function write(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-$("memory").value = localStorage.getItem("myai-memory") || "";
-messages = read("myai-current-chat", []);
-render();
-
-function render() {
-  $("chat").replaceChildren();
-
-  for (const message of messages) {
-    if (message.role === "system") continue;
-
-    const div = document.createElement("div");
-    div.className =
-      "msg " + (message.role === "user" ? "user" : "");
-
-    div.textContent =
-      (message.role === "user" ? "あなた\n" : "AI\n")
-      + message.content;
-
-    $("chat").append(div);
-  }
-
-  $("chat").scrollTop = $("chat").scrollHeight;
-}
-
-function saveChat() {
-  write("myai-current-chat", messages);
-}
-
-$("saveMemory").onclick = () => {
-  localStorage.setItem("myai-memory", $("memory").value);
-  $("memoryStatus").textContent = "記憶を保存しました。";
+document.getElementById("saveMemory").onclick = () => {
+  saveMemory();
+  statusBox.textContent = "記憶を保存したよ！";
 };
 
-$("load").onclick = async () => {
+function showMessage(role, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + (role === "user" ? "user" : "ai");
+  div.textContent = (role === "user" ? "あなた：\n" : "AI：\n") + text;
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function addMemory(text) {
+  const oldMemory = memoryBox.value.trim();
+  const line = "・" + text;
+
+  if (oldMemory.includes(text)) return;
+
+  memoryBox.value = oldMemory
+    ? oldMemory + "\n" + line
+    : "【ユーザーの記憶】\n" + line;
+
+  saveMemory();
+}
+
+function learnFromMessage(text) {
+  const t = text.trim();
+
+  // 「覚えて」「記憶して」と頼まれた内容を保存
+  const explicit = t.match(
+    /(?:覚えて|記憶して|忘れないで)[、：:\s]*(.+)/
+  );
+
+  if (explicit && explicit[1].trim()) {
+    addMemory(explicit[1].trim());
+    return "覚えておくね！";
+  }
+
+  // 好きなものについての発言を記憶
+  const favorite = t.match(
+    /(?:俺|僕|私|自分)?(?:は|の)?好きな(食べ物|飲み物|色|動物|ゲーム|趣味)(?:は|が)?\s*(.+?)(?:です|だよ|だね|だ|！|。|！)?$/
+  );
+
+  if (favorite && favorite[2].trim()) {
+    addMemory("好きな" + favorite[1] + "は" + favorite[2].trim());
+    return "好きなものとして記憶に追加したよ！";
+  }
+
+  // 「ラーメンが好き」などの発言を記憶
+  const likes = t.match(
+    /(?:俺|僕|私|自分)?(?:は|が)?\s*(.+?)が好き(?:です|だよ|だね|だ)?[！。！]?$/
+  );
+
+  if (likes && likes[1].trim().length <= 40) {
+    addMemory("好きなもの：" + likes[1].trim());
+    return "好きなものとして記憶に追加したよ！";
+  }
+
+  return "";
+}
+
+loadBtn.onclick = async () => {
   if (engine) return;
 
-  $("load").disabled = true;
-  $("status").textContent = "AIモデルを準備中…";
+  loadBtn.disabled = true;
+  statusBox.textContent = "AIを起動中…初回は時間がかかるよ。";
 
   try {
     engine = await CreateMLCEngine(MODEL, {
-      initProgressCallback: report => {
-        $("progress").textContent = report.text || "";
+      initProgressCallback: (p) => {
+        statusBox.textContent =
+          p.text || "AIを準備中…";
       }
     });
 
-    $("status").textContent = "AIの準備ができました！";
-    $("load").textContent = "読み込み済み";
-  } catch (error) {
-    $("status").textContent = "読み込み失敗：" + error.message;
-    $("load").disabled = false;
+    statusBox.textContent = "AI起動完了！話しかけてね。";
+    loadBtn.textContent = "AI起動済み";
+  } catch (e) {
+    statusBox.textContent = "起動失敗：" + e.message;
+    loadBtn.disabled = false;
   }
 };
 
-$("send").onclick = async () => {
-  const text = $("question").value.trim();
+async function sendMessage() {
+  const text = questionBox.value.trim();
+  if (!text) return;
 
-  if (!text || busy) return;
-
-  const memory = localStorage.getItem("myai-memory") || "";
-
-  if (!engine && memory === "") {
-    $("status").textContent =
-      "先に「AIモデルを読み込む」を押してください。";
+  if (!engine) {
+    statusBox.textContent = "先に「AIを起動する」を押してね。";
     return;
   }
 
-  busy = true;
-  $("send").disabled = true;
-  $("question").value = "";
+  questionBox.value = "";
+  sendBtn.disabled = true;
+  showMessage("user", text);
 
-  messages.push({ role: "user", content: text });
-  render();
-  saveChat();
+  // 記憶について聞かれたら、保存内容を直接返す
+  if (/保存されている記憶|保存した記憶|記憶を教えて|覚えていること/.test(text)) {
+    const answer = memoryBox.value.trim() || "まだ記憶はないよ。";
+    showMessage("assistant", answer);
+    sendBtn.disabled = false;
+    return;
+  }
+
+  // 会話から記憶を自動追加
+  const learned = learnFromMessage(text);
+
+  if (learned) {
+    showMessage("assistant", learned);
+    sendBtn.disabled = false;
+    return;
+  }
 
   try {
-    let answer = "";
+    const memory = memoryBox.value.trim();
 
-    // 保存された記憶を尋ねられたら、内容を直接返す
-    const asksMemory =
-      /記憶|覚えていること|覚えてること|保存内容|保存されている情報/
-      .test(text);
+    const systemPrompt =
+      "あなたはユーザー専用の日本語AIです。" +
+      "自然で分かりやすく、短めに回答してください。" +
+      "必要に応じてユーザーを「相棒」と呼んでください。" +
+      "操作案内は一度に一つずつ説明してください。" +
+      "\n\n保存されている記憶：\n" +
+      (memory || "まだ記憶はありません。");
 
-    if (asksMemory) {
-      answer = memory.trim()
-        ? "保存されている記憶は以下のとおりです。\n\n" + memory
-        : "まだ記憶は保存されていません。";
-    } else {
-      if (!engine) {
-        throw new Error("先にAIモデルを読み込んでください。");
-      }
+    messages.push({ role: "user", content: text });
 
-      const system =
-        "あなたはユーザー専用のAIアシスタントです。" +
-        "日本語で親しみやすく、具体的に回答してください。" +
-        "分からないことは正直に伝えてください。" +
-        "操作案内は一度に一つの手順だけ説明してください。\n\n" +
-        "以下はユーザーが保存した長期記憶です。" +
-        "これはユーザーについての情報です。" +
-        "質問に関係する場合は必ず参考にしてください。" +
-        "記憶にない情報を作らないでください。\n\n" +
-        "【保存された長期記憶】\n" +
-        (memory.trim() || "現在、記憶はありません。");
+    const recentMessages = messages.slice(-10);
 
-      const result = await engine.chat.completions.create({
-        messages: [
-          { role: "system", content: system },
-          ...messages.slice(-12)
-        ],
-        temperature: 0.5,
-        max_tokens: 700
-      });
+    const result = await engine.chat.completions.create({
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...recentMessages
+      ],
+      temperature: 0.7,
+      max_tokens: 256
+    });
 
-      answer =
-        result.choices[0].message.content ||
-        "回答を生成できませんでした。";
-    }
+    const answer =
+      result.choices[0]?.message?.content || "うまく回答できなかったよ。";
 
     messages.push({ role: "assistant", content: answer });
+    showMessage("assistant", answer);
 
-  } catch (error) {
-    messages.push({
-      role: "assistant",
-      content: "エラー：" + error.message
-    });
+  } catch (e) {
+    showMessage("assistant", "エラーが発生したよ：" + e.message);
   }
 
-  saveChat();
-  render();
-  busy = false;
-  $("send").disabled = false;
-};
+  sendBtn.disabled = false;
+}
 
-$("new").onclick = () => {
-  if (messages.length) {
-    const history = read("myai-history", []);
+sendBtn.onclick = sendMessage;
 
-    history.unshift({
-      date: new Date().toLocaleString("ja-JP"),
-      messages: messages
-    });
+questionBox.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendMessage();
+});
 
-    write("myai-history", history.slice(0, 30));
-  }
-
+document.getElementById("clearBtn").onclick = () => {
   messages = [];
-  saveChat();
-  render();
-  $("history").replaceChildren();
-};
-
-$("showHistory").onclick = () => {
-  const history = read("myai-history", []);
-  $("history").replaceChildren();
-
-  history.forEach((item, index) => {
-    const button = document.createElement("button");
-    button.textContent = (index + 1) + ". " + item.date;
-
-    button.onclick = () => {
-      messages = item.messages || [];
-      saveChat();
-      render();
-    };
-
-    $("history").append(button);
-  });
+  chatBox.replaceChildren();
+  statusBox.textContent = "会話を消去したよ。記憶は残っているよ。";
 };
 </script>
 </body>
