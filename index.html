@@ -9,7 +9,8 @@
 * { box-sizing: border-box; }
 body {
   margin: 0; padding: 16px;
-  background: #f3f5f8; color: #222; font-family: sans-serif;
+  background: #f3f5f8; color: #222;
+  font-family: sans-serif;
 }
 main { max-width: 700px; margin: auto; }
 h1 { text-align: center; }
@@ -20,7 +21,10 @@ h1 { text-align: center; }
 button, textarea { font: inherit; border-radius: 8px; padding: 11px; }
 button { cursor: pointer; border: 0; background: #2563eb; color: white; }
 button:disabled { opacity: .5; }
-textarea { width: 100%; border: 1px solid #ccd1da; resize: vertical; }
+textarea {
+  width: 100%; border: 1px solid #ccd1da;
+  resize: vertical;
+}
 #chat {
   height: 320px; overflow-y: auto; background: white;
   padding: 12px; border-radius: 10px; border: 1px solid #ddd;
@@ -50,7 +54,7 @@ textarea { width: 100%; border: 1px solid #ccd1da; resize: vertical; }
 <section class="panel">
   <h3>相棒の記憶</h3>
   <textarea id="memoryBox" rows="5"
-    placeholder="覚えておいてほしいこと"></textarea>
+    placeholder="覚えておいてほしいこと（1行に1つ）"></textarea>
   <div class="row">
     <button id="saveMemoryBtn">記憶を保存</button>
   </div>
@@ -101,11 +105,13 @@ function saveMemory(value) {
   memoryBox.value = value;
 }
 
+function getMemoryLines() {
+  return readMemory().split("\n").map(s => s.trim()).filter(Boolean);
+}
+
 function loadHistory() {
   try {
-    const data = JSON.parse(
-      localStorage.getItem(HISTORY_KEY) || "[]"
-    );
+    const data = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
     return Array.isArray(data)
       ? data.filter(m =>
           m && ["user", "assistant"].includes(m.role) &&
@@ -119,7 +125,7 @@ function loadHistory() {
 function saveHistory() {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(messages));
-  } catch (e) {
+  } catch {
     statusBox.textContent = "履歴を保存できなかったよ。";
   }
 }
@@ -137,10 +143,6 @@ function addMessage(role, content) {
   messages.push({ role, content });
   saveHistory();
   showMessage(role, content);
-}
-
-function getMemoryLines() {
-  return readMemory().split("\n").map(s => s.trim()).filter(Boolean);
 }
 
 function addMemory(line) {
@@ -186,9 +188,7 @@ function changeMemory(text) {
     return line;
   });
 
-  if (!changed) {
-    return "変更する記憶が見つからなかったよ。";
-  }
+  if (!changed) return "変更する記憶が見つからなかったよ。";
 
   saveMemory(updated.join("\n"));
   return "記憶を変更したよ！";
@@ -197,7 +197,7 @@ function changeMemory(text) {
 function learnMemory(text) {
   let fact = null;
 
-  if (/^.+?が好き$/.test(text)) {
+  if (/^.+?が(?:大好き|好き)$/.test(text)) {
     fact = text;
   } else {
     const match = text.match(/^覚えて(?:おいて|て)[:： ]?(.+)$/);
@@ -206,23 +206,23 @@ function learnMemory(text) {
 
   if (!fact) return null;
 
-  if (addMemory(fact)) {
-    return "「" + fact + "」を記憶に追加したよ！";
-  }
-
-  return "そのことはもう記憶しているよ！";
+  return addMemory(fact)
+    ? "「" + fact + "」を記憶に追加したよ！"
+    : "そのことはもう記憶しているよ！";
 }
 
-// 記憶から答えられる質問を探す
 function answerFromMemory(question) {
   const lines = getMemoryLines();
-
   if (!lines.length) return null;
 
-  const asksFood =
-    /好きな食べ物|好きな料理|何が好き|何が大好き/.test(question);
+  // 記憶一覧
+  if (/何を覚えて|覚えていること|記憶の一覧|俺の記憶|私の記憶/.test(question)) {
+    return "相棒について覚えていることだよ！\n" +
+      lines.map(line => "・" + line).join("\n");
+  }
 
-  if (asksFood) {
+  // 好きな食べ物
+  if (/好きな食べ物|好きな料理|何が好き|何が大好き/.test(question)) {
     const food = lines.find(line =>
       /ラーメン|カレー|寿司|すし|焼肉|肉|魚|パスタ|そば|うどん|ピザ|ハンバーグ|オムライス/.test(line) &&
       /好き|大好き/.test(line)
@@ -234,7 +234,7 @@ function answerFromMemory(question) {
     }
   }
 
-  // 質問文の中に記憶のキーワードがあれば答える
+  // 記憶に書かれたキーワードを質問文から探す
   const normalizedQuestion = question.replace(/[？?！!。]/g, "");
 
   for (const line of lines) {
@@ -250,10 +250,10 @@ function answerFromMemory(question) {
 function systemPrompt() {
   return `あなたは相棒専用の親しみやすいAIです。
 日本語で自然に答えてください。
-ユーザーの記憶を活用してください。
-記憶にないことを知っているふりはしないでください。
+以下の記憶を回答に活用してください。
+記憶にないことは、知っているふりをしないでください。
 
-ユーザーの記憶：
+相棒の記憶：
 ${readMemory() || "まだ記憶はありません。"}`;
 }
 
@@ -278,7 +278,6 @@ startBtn.onclick = async () => {
         statusBox.textContent = progress.text || "AIを準備中…";
       }
     });
-
     statusBox.textContent = "起動できたよ！";
     sendBtn.disabled = false;
     startBtn.textContent = "AI起動済み";
@@ -300,10 +299,10 @@ async function sendMessage() {
   questionBox.value = "";
   busy = true;
   sendBtn.disabled = true;
-
   addMessage("user", text);
 
   try {
+    // 記憶操作・記憶からの回答をモデルより先に実行
     let answer =
       forgetMemory(text) ||
       changeMemory(text) ||
